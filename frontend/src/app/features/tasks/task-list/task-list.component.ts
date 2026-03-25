@@ -1,4 +1,4 @@
-import { Component, signal, effect, inject } from '@angular/core';
+import { Component, signal, computed, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { TaskService } from '../../../core/services/task.service';
 import { CategoryService } from '../../../core/services/category.service';
@@ -16,13 +16,11 @@ type FilterStatus = TaskStatus | 'all';
   template: `
     <div class="min-h-screen bg-gray-50 p-4">
       <div class="max-w-6xl mx-auto">
-        <!-- Header -->
         <div class="mb-8">
           <h1 class="text-4xl font-bold text-gray-900 mb-2">Tasks</h1>
           <p class="text-gray-600">Manage your tasks and projects</p>
         </div>
 
-        <!-- Filter Bar -->
         <div class="flex gap-3 mb-8 flex-wrap">
           <button
             *ngFor="let status of filterOptions"
@@ -35,27 +33,24 @@ type FilterStatus = TaskStatus | 'all';
           >
             {{ status === 'all' ? 'All' : (status | titlecase).replace('_', ' ') }}
           </button>
+
           <button
-            (click)="showForm.set(true)"
+            (click)="openCreateForm()"
             class="ml-auto px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition"
           >
             + New Task
           </button>
         </div>
 
-        <!-- Loading State -->
         <div *ngIf="isLoading()" class="flex justify-center items-center py-12">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
         </div>
 
-        <!-- Empty State -->
         <div *ngIf="!isLoading() && filteredTasks().length === 0" class="text-center py-12">
           <p class="text-gray-500 text-lg">No tasks found. Create one to get started!</p>
         </div>
 
-        <!-- Tasks Grid -->
-        <div *ngIf="!isLoading() && filteredTasks().length > 0"
-          class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div *ngIf="!isLoading() && filteredTasks().length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <app-task-card
             *ngFor="let task of filteredTasks()"
             [task]="task"
@@ -66,11 +61,10 @@ type FilterStatus = TaskStatus | 'all';
         </div>
       </div>
 
-      <!-- Form Modal -->
       <app-task-form
         *ngIf="showForm()"
         [task]="editingTask()"
-        [categories]="categories"
+        [categories]="categories()"
         [submitting]="formSubmitting()"
         (saved)="saveTask($event)"
         (cancelled)="cancelForm()"
@@ -79,7 +73,7 @@ type FilterStatus = TaskStatus | 'all';
   `,
   styles: []
 })
-export class TaskListComponent {
+export class TaskListComponent implements OnInit {
   private taskService = inject(TaskService);
   private categoryService = inject(CategoryService);
 
@@ -92,26 +86,21 @@ export class TaskListComponent {
   formSubmitting = signal(false);
 
   filterOptions: FilterStatus[] = ['all', 'pending', 'in_progress', 'done'];
-  filteredTasks = signal<Task[]>([]);
+  filteredTasks = computed(() => {
+    const allTasks = this.tasks();
+    const filter = this.currentFilter();
+    return filter === 'all' ? allTasks : allTasks.filter((t) => t.status === filter);
+  });
 
-  constructor() {
-    // Load tasks and categories on init
-    effect(() => {
-      this.loadTasks();
-      this.loadCategories();
-    });
+  ngOnInit(): void {
+    this.loadTasks();
+    this.loadCategories();
+  }
 
-    // Update filtered tasks when tasks or filter changes
-    effect(() => {
-      const allTasks = this.tasks();
-      const filter = this.currentFilter();
-      
-      if (filter === 'all') {
-        this.filteredTasks.set(allTasks);
-      } else {
-        this.filteredTasks.set(allTasks.filter(t => t.status === filter));
-      }
-    });
+  openCreateForm(): void {
+    this.editingTask.set(null);
+    this.loadCategories();
+    this.showForm.set(true);
   }
 
   private loadTasks(): void {
@@ -168,23 +157,36 @@ export class TaskListComponent {
   }
 
   editTask(task: Task): void {
-    this.editingTask.set(task);
-    this.showForm.set(true);
+    this.formSubmitting.set(true);
+    this.taskService.getById(task.id).subscribe({
+      next: (fullTask) => {
+        this.editingTask.set(fullTask);
+        this.loadCategories();
+        this.showForm.set(true);
+        this.formSubmitting.set(false);
+      },
+      error: () => {
+        this.editingTask.set(task);
+        this.loadCategories();
+        this.showForm.set(true);
+        this.formSubmitting.set(false);
+      }
+    });
   }
 
   saveTask(event: { data: CreateTaskDTO | UpdateTaskDTO; isEdit: boolean }): void {
     const editingTask = this.editingTask();
     this.formSubmitting.set(true);
-    
+
     if (!event.isEdit) {
-      // Create new task
       this.taskService.create(event.data as CreateTaskDTO).subscribe({
-        next: () => {
+        next: (newTask) => {
           this.currentFilter.set('all');
-          this.loadTasks();
+          this.tasks.update((tasks) => [newTask, ...tasks.filter((t) => t.id !== newTask.id)]);
           this.showForm.set(false);
           this.editingTask.set(null);
           this.formSubmitting.set(false);
+          this.loadTasks();
         },
         error: (error) => {
           console.error('Failed to create task', error);
@@ -193,7 +195,6 @@ export class TaskListComponent {
         }
       });
     } else if (editingTask) {
-      // Update existing task
       this.taskService.update(editingTask.id, event.data as UpdateTaskDTO).subscribe({
         next: () => {
           this.loadTasks();
@@ -218,4 +219,3 @@ export class TaskListComponent {
     this.formSubmitting.set(false);
   }
 }
-

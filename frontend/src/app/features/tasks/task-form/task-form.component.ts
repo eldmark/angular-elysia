@@ -76,7 +76,7 @@ import { Category } from '../../../core/models/category.model';
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             >
               <option [ngValue]="null">Select a category</option>
-              <option *ngFor="let cat of categories()" [ngValue]="cat.id">
+              <option *ngFor="let cat of categories" [ngValue]="cat.id">
                 {{ cat.name }}
               </option>
             </select>
@@ -119,10 +119,20 @@ export class TaskFormComponent {
         status: value.status,
         categoryId: value.categoryId
       };
+      return;
     }
+
+    this.isEditMode = false;
+    this.taskId = null;
+    this.formData = {
+      title: '',
+      description: '',
+      status: 'pending',
+      categoryId: null,
+    };
   }
 
-  @Input() categories = signal<Category[]>([]);
+  @Input() categories: Category[] = [];
   @Input() submitting = false;
   @Output() saved = new EventEmitter<{ data: CreateTaskDTO | UpdateTaskDTO; isEdit: boolean }>();
   @Output() cancelled = new EventEmitter<void>();
